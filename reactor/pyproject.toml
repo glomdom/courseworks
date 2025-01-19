@@ -1,0 +1,10 @@
+[project]
+name = "kursova"
+version = "0.0.1"
+description = "random reactor sim for 1st semester work"
+readme = ""
+requires-python = ">=3.11"
+dependencies = [
+    "colorama>=0.4.6",
+    "windows-curses>=2.4.1",
+]
