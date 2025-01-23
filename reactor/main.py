@@ -1,206 +1,224 @@
+import os
 import time
-import curses
 import random
-from threading import Thread, Event
 
-class Reactor:
-    def __init__(self, reactor_id, name, status="offline", fuel_level=100, coolant_level=100):
-        self.__id = reactor_id
+MAX_TEMP_INCREASE = 70
+MIN_TEMP_INCREASE = 30
+
+MAX_TEMP_DECREASE = 40
+MIN_TEMP_DECREASE = 20
+
+class ReactorComponent:
+    def __init__(self, name: str, status: str = "Operational"):
         self.name = name
         self._status = status
-        self.__temperature = 100
-        self.output = 50
-        self.fuel_level = fuel_level
-        self.coolant_level = coolant_level
 
-    @property
-    def temperature(self):
-        return self.__temperature
+    def get_status(self):
+        return self._status
 
-    @temperature.setter
-    def temperature(self, value):
-        if value < 0:
-            raise ValueError("Temperature cannot be negative.")
-        self.__temperature = value
-
-    @staticmethod
-    def validate_status(status):
-        return status in ["active", "offline", "maintenance"]
-
-    def update(self):
-        if self._status == "active":
-            self.temperature += random.randint(-3, 5)
-
-            if self.coolant_level > 0 and self.temperature > 150:
-                self.temperature -= random.randint(1, 3)
-                self.coolant_level -= random.uniform(0.3, 0.7)
-
-            if 50 <= self.temperature <= 300:
-                base_output = (self.temperature - 50) * 0.5
-                fluctuation = random.uniform(0, 5)
-                self.output = max(base_output + fluctuation, 0)
-            else:
-                self.output = 0
-
-            if self.output > 0 and self.fuel_level > 0:
-                fuel_needed = self.output * 0.01
-
-                if self.fuel_level >= fuel_needed:
-                    self.fuel_level -= fuel_needed
-                else:
-                    self.output *= self.fuel_level / fuel_needed
-                    self.fuel_level = 0
-
-            if self.fuel_level < 20:
-                self.fuel_level += random.uniform(0.5, 1.5)
-            if self.coolant_level < 20:
-                self.coolant_level += random.uniform(0.2, 1.0)
+    def set_status(self, new_status: str):
+        if new_status in ["Operational", "Under Maintenance", "Inactive"]:
+            self._status = new_status
         else:
-            self.temperature = max(self.temperature - random.randint(1, 3), 20)
-            self.output = 0
-
-    def __str__(self):
-        return f"{self.name} (ID: {self.__id}, Status: {self._status})"
-
-class NuclearReactor(Reactor):
-    def __init__(self, reactor_id, name, status="offline", fuel_level=100, coolant_level=100):
-        super().__init__(reactor_id, name, status, fuel_level, coolant_level)
-        self.reactor_type = "Nuclear"
+            raise ValueError("Invalid status provided!")
 
 class LoggerMixin:
-    def log(self, message):
+    @staticmethod
+    def log(message: str):
         print(f"[LOG] {message}")
 
-class ReactorFacility(LoggerMixin):
-    def __init__(self, name):
-        super().__init__()
-        self.name = name
+class Reactor(ReactorComponent, LoggerMixin):
+    MAX_TEMP = 1000
+    MIN_TEMP = 300
+
+    def __init__(self, name: str, temperature: float, status: str = "Operational"):
+        super().__init__(name, status)
+        self.__temperature = temperature
+        self.activity = "Producing" if temperature < Reactor.MAX_TEMP else "Cooling"
+
+    def get_temperature(self):
+        return self.__temperature
+
+    def set_temperature(self, new_temperature: float):
+        if new_temperature < 0:
+            raise ValueError("Temperature cannot be negative!")
+        self.__temperature = new_temperature
+        self.log(f"Temperature of reactor {self.name} updated to {self.__temperature}°C")
+        self._update_activity()
+
+    def update_temperature(self):
+        if self.activity == "Producing":
+            self.__temperature += random.randint(MIN_TEMP_INCREASE, MAX_TEMP_INCREASE)
+            if self.__temperature >= Reactor.MAX_TEMP:
+                self.activity = "Cooling"
+        elif self.activity == "Cooling":
+            self.__temperature -= random.randint(MIN_TEMP_DECREASE, MAX_TEMP_DECREASE)
+            if self.__temperature <= Reactor.MIN_TEMP:
+                self.activity = "Producing"
+
+    def _update_activity(self):
+        if self.__temperature >= Reactor.MAX_TEMP:
+            self.activity = "Cooling"
+        elif self.__temperature <= Reactor.MIN_TEMP:
+            self.activity = "Producing"
+
+    def get_summary(self):
+        return {
+            "Name": self.name,
+            "Status": self.get_status(),
+            "Temperature": self.get_temperature(),
+            "Activity": self.activity,
+        }
+
+class ReactorManager(LoggerMixin):
+    def __init__(self):
         self.reactors = []
-        self.update_event = Event()
 
-    def add_reactor(self, reactor):
-        if not isinstance(reactor, Reactor):
-            self.log("Attempted to add an invalid reactor.")
-
-            return
-
+    def add_reactor(self, reactor: Reactor):
         self.reactors.append(reactor)
         self.log(f"Reactor {reactor.name} added.")
 
+    def remove_reactor(self, name: str):
+        for reactor in self.reactors:
+            if reactor.name == name:
+                self.reactors.remove(reactor)
+                self.log(f"Reactor {name} removed.")
+
+                return
+
+        print(f"No reactor with name '{name}' found.")
+
     def list_reactors(self):
-        return [str(reactor) for reactor in self.reactors]
+        print("Reactor Summary:")
 
-    def update_reactors(self):
-        while not self.update_event.is_set():
-            for reactor in self.reactors:
-                reactor.update()
+        for reactor in self.reactors:
+            summary = reactor.get_summary()
+            print(f"Name: {summary['Name']}, Status: {summary['Status']}, Temperature: {summary['Temperature']}°C, Activity: {summary['Activity']}")
 
-            time.sleep(0.5)
+    def update_all_reactors(self):
+        for reactor in self.reactors:
+            reactor.update_temperature()
 
-def curses_input(stdscr, prompt, y, x):
-    stdscr.addstr(y, x, prompt)
-    curses.echo()
-    user_input = stdscr.getstr(y, x + len(prompt)).decode("utf-8")
-    curses.noecho()
+    def live_update(self, cycles: int, interval: float = 1.0):
+        for cycle in range(cycles):
+            os.system('cls' if os.name == 'nt' else 'clear')
 
-    return user_input
+            print(f"--- Simulation Cycle {cycle + 1}/{cycles} ---")
+            self.update_all_reactors()
+            self.list_reactors()
 
-def main(stdscr):
-    curses.start_color()
-    curses.init_pair(1, curses.COLOR_YELLOW, curses.COLOR_BLACK)
-    curses.init_pair(2, curses.COLOR_RED, curses.COLOR_BLACK)
-    curses.init_pair(3, curses.COLOR_GREEN, curses.COLOR_BLACK)
-    curses.init_pair(4, curses.COLOR_CYAN, curses.COLOR_BLACK)
+            time.sleep(interval)
 
-    facility = ReactorFacility("Main Reactor Facility")
+class Validator:
+    @staticmethod
+    def validate_name(name: str):
+        if len(name) < 3:
+            raise ValueError("Name must be at least 3 characters long!")
 
-    facility.update_event.clear()
-    update_thread = Thread(target=facility.update_reactors, daemon=True)
-    update_thread.start()
+    @staticmethod
+    def validate_temperature(temperature: float):
+        if temperature < 0:
+            raise ValueError("Temperature must be a positive value!")
+
+def clear_screen():
+    os.system('cls' if os.name == 'nt' else 'clear')
+
+def menu():
+    clear_screen()
+    manager = ReactorManager()
 
     while True:
-        stdscr.clear()
-        stdscr.addstr(0, 0, "Reactor Manager Menu:", curses.A_BOLD)
-        stdscr.addstr(2, 0, "1. List Reactors")
-        stdscr.addstr(3, 0, "2. Add Reactor")
-        stdscr.addstr(4, 0, "3. Start Live Monitoring")
-        stdscr.addstr(5, 0, "4. Exit")
-        stdscr.refresh()
+        clear_screen()
+        print("\n--- Reactor Management System ---")
+        print("1. Add Reactor")
+        print("2. Update Reactor Status")
+        print("3. Update Reactor Temperature")
+        print("4. Remove Reactor")
+        print("5. List Reactors")
+        print("6. Simulate Reactor Activity")
+        print("7. Exit")
 
-        choice = stdscr.getkey()
+        choice = input("Choose an option: ")
+        clear_screen()
 
         if choice == "1":
-            stdscr.clear()
-            reactors = facility.list_reactors()
+            try:
+                name = input("Enter reactor name: ")
+                Validator.validate_name(name)
 
-            if not reactors:
-                stdscr.addstr(0, 0, "No reactors in the facility.", curses.color_pair(2))
-            else:
-                for i, reactor in enumerate(reactors):
-                    stdscr.addstr(i, 0, reactor)
-            
-            stdscr.addstr(len(reactors) + 1, 0, "Press any key to return.")
-            stdscr.getkey()
+                temperature = float(input("Enter initial temperature (°C): "))
+                Validator.validate_temperature(temperature)
+
+                reactor = Reactor(name, temperature)
+                manager.add_reactor(reactor)
+            except ValueError as e:
+                print(f"Error: {e}")
+
+            input("\nPress Enter to return to the menu...")
 
         elif choice == "2":
-            stdscr.clear()
+            name = input("Enter reactor name: ")
+            status = input("Enter new status (Operational/Under Maintenance/Inactive): ")
 
-            reactor_id = curses_input(stdscr, "Enter Reactor ID: ", 0, 0)
-            name = curses_input(stdscr, "Enter Reactor Name: ", 1, 0)
-            status = curses_input(stdscr, "Enter Reactor Status (active/offline/maintenance): ", 2, 0)
+            for reactor in manager.reactors:
+                if reactor.name == name:
+                    try:
+                        reactor.set_status(status)
 
-            if not Reactor.validate_status(status):
-                status = "offline"
+                        print(f"Status of reactor {name} updated to {status}.")
+                    except ValueError as e:
+                        print(f"Error: {e}")
+                    break
+            else:
+                print(f"No reactor with name '{name}' found.")
 
-            reactor = NuclearReactor(reactor_id, name, status)
-            facility.add_reactor(reactor)
-
-            stdscr.addstr(4, 0, "Reactor added successfully.", curses.color_pair(3))
-            stdscr.addstr(5, 0, "Press any key to return.")
-            stdscr.getkey()
+            input("\nPress Enter to return to the menu...")
 
         elif choice == "3":
-            stdscr.nodelay(True)
-            stdscr.clear()
-            stdscr.addstr(0, 0, "Live Monitoring (Press any key to quit):", curses.A_BOLD)
+            name = input("Enter reactor name: ")
+            new_temp = float(input("Enter new temperature (°C): "))
 
-            try:
-                while True:
-                    stdscr.clear()
-                    stdscr.addstr(0, 0, "Live Monitoring (Press any key to quit):", curses.A_BOLD)
-                    for i, reactor in enumerate(facility.reactors):
-                        temp_color = curses.color_pair(2) if reactor.temperature > 150 else curses.color_pair(3)
+            for reactor in manager.reactors:
+                if reactor.name == name:
+                    try:
+                        reactor.set_temperature(new_temp)
+                        print(f"Temperature of reactor {name} updated.")
+                    except ValueError as e:
+                        print(f"Error: {e}")
 
-                        stdscr.addstr(i * 5 + 2, 0, f"Reactor {i}: {reactor.name}")
-                        stdscr.addstr(i * 5 + 3, 2, "Temp: ")
-                        stdscr.addstr(f"{reactor.temperature}°C", temp_color)
-                        stdscr.addstr(f"  Output: ")
-                        stdscr.addstr(f"{reactor.output:.2f} MW", curses.color_pair(1))
-                        stdscr.addstr(f"  Fuel: ")
-                        stdscr.addstr(f"{reactor.fuel_level:.2f}%", curses.color_pair(3))
-                        stdscr.addstr(f"  Coolant: ")
-                        stdscr.addstr(f"{reactor.coolant_level:.2f}%", curses.color_pair(4))
+                    break
+            else:
+                print(f"No reactor with name '{name}' found.")
 
-                    stdscr.refresh()
-                    if stdscr.getch() != -1:
-                        break
-
-                    time.sleep(0.5)
-
-            finally:
-                stdscr.nodelay(False)
-
+            input("\nPress Enter to return to the menu...")
         elif choice == "4":
-            stdscr.addstr(8, 0, "Exiting Reactor Manager. Goodbye!", curses.color_pair(3))
-            stdscr.refresh()
-            facility.update_event.set()
-            update_thread.join()
-            break
+            name = input("Enter reactor name to remove: ")
+            manager.remove_reactor(name)
+            
+            input("\nPress Enter to return to the menu...")
+        elif choice == "5":
+            manager.list_reactors()
 
+            input("\nPress Enter to return to the menu...")
+        elif choice == "6":
+            try:
+                cycles = int(input("Enter the number of simulation cycles: "))
+                interval = float(input("Enter the interval between cycles (seconds): "))
+                
+                print("Simulating reactor activity...")
+
+                manager.live_update(cycles, interval)
+            except ValueError as e:
+                print(f"Error: {e}")
+
+            input("\nPress Enter to return to the menu...")
+        elif choice == "7":
+            print("Exiting Reactor Management System.")
+
+            break
         else:
-            stdscr.addstr(6, 0, "Invalid choice. Please try again.", curses.color_pair(2))
-            stdscr.addstr(7, 0, "Press any key to return.")
-            stdscr.getkey()
+            print("Invalid choice! Please try again.")
+            input("\nPress Enter to return to the menu...")
 
 if __name__ == "__main__":
-    curses.wrapper(main)
+    menu()
