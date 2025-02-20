@@ -1,10 +1,8 @@
 import math
-from abc import ABC, abstractmethod
 
-class Shape(ABC):
-    @abstractmethod
+class Shape:
     def calculate_area(self):
-        pass
+        raise NotImplementedError("u gotta implement this sorry")
     
 class Rectangle(Shape):
     def __init__(self, length, width):
@@ -21,10 +19,9 @@ class Circle(Shape):
     def calculate_area(self):
         return math.pi * (self.radius ** 2)
 
-class Vehicle(ABC):
-    @abstractmethod
+class Vehicle:
     def describe(self):
-        pass
+        raise NotImplementedError("u gotta implement this sorry")
 
 class Car(Vehicle):
     def describe(self):
