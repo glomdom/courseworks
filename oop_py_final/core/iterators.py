@@ -1,16 +1,18 @@
+from core.users import BaseUser
+
 class EvenIDIterator:
-    def __init__(self, ids: list[int]) -> None:
-        self.ids = [i for i in ids if i % 2 == 0]
+    def __init__(self, users: list[BaseUser]) -> None:
+        self.users = [u for u in users if u.id % 2 == 0]
         self.index = 0
 
     def __iter__(self) -> 'EvenIDIterator':
         return self
 
-    def __next__(self) -> int:
-        if self.index >= len(self.ids):
+    def __next__(self) -> BaseUser:
+        if self.index >= len(self.users):
             raise StopIteration
-        
-        value = self.ids[self.index]
+
+        user = self.users[self.index]
         self.index += 1
 
-        return value
+        return user
